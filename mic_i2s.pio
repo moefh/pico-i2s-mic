@@ -1,0 +1,48 @@
+.program mic_i2s
+.side_set 2
+
+//                               /--- WS (left/right)
+//                               |/-- SCK (clock)
+//                               ||
+    set x, 30             side 0b00
+bitloop_left:
+    in  pins, 1           side 0b01   ; read * 31
+    jmp x-- bitloop_left  side 0b00
+    in  pins, 1           side 0b01   ; read
+
+    set x, 30             side 0b10
+bitloop_right:
+    in  pins, 1           side 0b11   ; read * 31
+    jmp x-- bitloop_right side 0b10
+    in  pins, 1           side 0b11   ; read
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void mic_i2s_program_init(PIO pio, uint sm, uint offset, uint freq, uint data_pin, uint clock_pin_base) {
+  // configure PIO
+  pio_sm_config sm_config = mic_i2s_program_get_default_config(offset);
+
+  sm_config_set_in_pins(&sm_config, data_pin);
+  sm_config_set_sideset_pins(&sm_config, clock_pin_base);
+  sm_config_set_in_shift(&sm_config, false, true, 32);
+  sm_config_set_fifo_join(&sm_config, PIO_FIFO_JOIN_RX);
+
+  uint f_clk_sys = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_SYS);
+  sm_config_set_clkdiv(&sm_config, (f_clk_sys * 1000.f) / (freq * 32 * 2 * 2.0f));
+
+  pio_sm_init(pio, sm, offset, &sm_config);
+
+  // configure PIO pins
+  uint pin_mask = (1u << data_pin) | (0b11 << clock_pin_base);
+  uint pin_dirs = (0u << data_pin) | (0b11 << clock_pin_base);
+  pio_sm_set_pindirs_with_mask(pio, sm, pin_dirs, pin_mask);
+  pio_sm_set_pins(pio, sm, 0);
+
+  pio_gpio_init(pio, data_pin);
+  pio_gpio_init(pio, clock_pin_base);
+  pio_gpio_init(pio, clock_pin_base + 1);
+  gpio_pull_down(data_pin);
+}
+
+%}
